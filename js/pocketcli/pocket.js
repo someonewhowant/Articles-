@@ -1,13 +1,19 @@
 #!/usr/bin/env node
 
+/**
+ * Pocket CLI - Простой менеджер закладок для терминала.
+ * Позволяет сохранять, искать, редактировать и открывать ссылки.
+ */
+
 const fs = require('fs');
 const path = require('path');
 const { exec } = require('child_process');
 const readline = require('readline');
 
+// Путь к JSON-файлу, в котором хранятся закладки
 const DB_PATH = path.join(__dirname, 'bookmarks.json');
 
-// Colors
+// Конфигурация ANSI-последовательностей для раскрашивания вывода в терминале
 const colors = {
   reset: "\x1b[0m",
   bright: "\x1b[1m",
@@ -40,13 +46,22 @@ const colors = {
   }
 };
 
+/**
+ * Утилита для раскрашивания текста
+ * @param {string} color - Код цвета из объекта colors
+ * @param {string} text - Текст для раскрашивания
+ */
 const colorize = (color, text) => `${color}${text}${colors.reset}`;
 
-// Initialize database if not exists
+// Инициализация базы данных: создаем пустой массив в файле, если его еще нет
 if (!fs.existsSync(DB_PATH)) {
   fs.writeFileSync(DB_PATH, JSON.stringify([], null, 2));
 }
 
+/**
+ * Читает данные из JSON-файла базы данных
+ * @returns {Array} Массив объектов закладок
+ */
 const readDB = () => {
   try {
     const data = fs.readFileSync(DB_PATH, 'utf8');
@@ -57,6 +72,10 @@ const readDB = () => {
   }
 };
 
+/**
+ * Сохраняет массив закладок в JSON-файл
+ * @param {Array} data - Массив объектов закладок
+ */
 const writeDB = (data) => {
   try {
     fs.writeFileSync(DB_PATH, JSON.stringify(data, null, 2));
@@ -65,6 +84,11 @@ const writeDB = (data) => {
   }
 };
 
+/**
+ * Преобразует ISO дату в человекочитаемый формат "времени назад" (напр. "2h ago")
+ * @param {string} dateStr - Строка даты в формате ISO
+ * @returns {string} Относительное время или дата
+ */
 const formatDate = (dateStr) => {
   const date = new Date(dateStr);
   const now = new Date();
@@ -78,6 +102,9 @@ const formatDate = (dateStr) => {
   return date.toLocaleDateString();
 };
 
+/**
+ * Выводит справочную информацию по доступным командам
+ */
 const help = () => {
   console.log(`
 ${colorize(colors.bright + colors.fg.cyan, 'Pocket CLI - Bookmark Manager')}
@@ -100,6 +127,11 @@ ${colorize(colors.fg.yellow, 'Examples:')}
   `);
 };
 
+/**
+ * Обрабатывает аргументы командной строки, отделяя теги (--tags=...) от позиционных параметров
+ * @param {string[]} args - Массив аргументов
+ * @returns {object} Объект с очищенными аргументами и параметрами тегов
+ */
 const parseArgs = (args) => {
   const params = { tags: [] };
   const cleanedArgs = [];
@@ -115,6 +147,11 @@ const parseArgs = (args) => {
   return { cleanedArgs, params };
 };
 
+/**
+ * Базовая проверка валидности URL
+ * @param {string} url 
+ * @returns {boolean}
+ */
 const isValidUrl = (url) => {
   try {
     new URL(url);
@@ -124,6 +161,10 @@ const isValidUrl = (url) => {
   }
 };
 
+/**
+ * Логика добавления новой закладки
+ * @param {string[]} args - Аргументы команды add
+ */
 const add = (args) => {
   const { cleanedArgs, params } = parseArgs(args);
   const url = cleanedArgs[0];
@@ -139,6 +180,7 @@ const add = (args) => {
   }
 
   const db = readDB();
+  // Генерируем новый ID на основе максимального существующего
   const id = db.length > 0 ? Math.max(...db.map(b => b.id)) + 1 : 1;
   const newBookmark = {
     id,
@@ -152,6 +194,10 @@ const add = (args) => {
   console.log(`${colorize(colors.fg.green, '✔')} Added bookmark [${colorize(colors.fg.cyan, id)}]: ${colorize(colors.bright, newBookmark.title)}`);
 };
 
+/**
+ * Отрисовывает список закладок в виде форматированной таблицы
+ * @param {Array} bookmarks - Список закладок для отображения
+ */
 const printTable = (bookmarks) => {
   if (bookmarks.length === 0) {
     console.log(colorize(colors.fg.yellow, 'No bookmarks found.'));
@@ -163,10 +209,12 @@ const printTable = (bookmarks) => {
   const urlColWidth = 40;
   const tagsColWidth = 20;
 
+  // Формируем заголовок таблицы
   const header = ` ${'ID'.padEnd(idColWidth)} | ${'Title'.padEnd(titleColWidth)} | ${'URL'.padEnd(urlColWidth)} | ${'Tags'.padEnd(tagsColWidth)} | ${'Date'}`;
   console.log(colorize(colors.bg.blue + colors.fg.white, header));
   console.log('-'.repeat(header.length));
 
+  // Выводим строки данных
   bookmarks.forEach(b => {
     const id = b.id.toString().padEnd(idColWidth);
     const title = (b.title.length > titleColWidth ? b.title.substring(0, titleColWidth - 3) + '...' : b.title).padEnd(titleColWidth);
@@ -178,11 +226,18 @@ const printTable = (bookmarks) => {
   });
 };
 
+/**
+ * Команда вывода всех закладок
+ */
 const list = () => {
   const db = readDB();
   printTable(db);
 };
 
+/**
+ * Поиск закладок по вхождению строки в заголовке, URL или тегах
+ * @param {string} query - Поисковый запрос
+ */
 const search = (query) => {
   if (!query) {
     console.error(colorize(colors.fg.red, 'Error: Search query is required'));
@@ -200,6 +255,10 @@ const search = (query) => {
   printTable(filtered);
 };
 
+/**
+ * Вывод полной информации об одной закладке по ID
+ * @param {string} id - ID закладки
+ */
 const show = (id) => {
   const db = readDB();
   const b = db.find(b => b.id === parseInt(id));
@@ -216,6 +275,12 @@ const show = (id) => {
   console.log(`${colorize(colors.fg.yellow, 'Created At:')} ${new Date(b.createdAt).toLocaleString()} (${formatDate(b.createdAt)})`);
 };
 
+/**
+ * Редактирование полей существующей закладки
+ * @param {string} id - ID закладки
+ * @param {string} field - Название поля (url, title, tags)
+ * @param {string} value - Новое значение
+ */
 const edit = (id, field, value) => {
   if (!field || !value) {
     console.error(colorize(colors.fg.red, 'Usage: edit <id> <url|title|tags> <value>'));
@@ -241,6 +306,10 @@ const edit = (id, field, value) => {
   console.log(`${colorize(colors.fg.green, '✔')} Updated bookmark ${id}`);
 };
 
+/**
+ * Удаление закладки по ID
+ * @param {string} id - ID закладки
+ */
 const remove = (id) => {
   let db = readDB();
   const initialLength = db.length;
@@ -253,6 +322,10 @@ const remove = (id) => {
   console.log(`${colorize(colors.fg.green, '✔')} Deleted bookmark ${id}`);
 };
 
+/**
+ * Открывает URL закладки в системном браузере по умолчанию
+ * @param {string} id - ID закладки
+ */
 const open = (id) => {
   const db = readDB();
   const bookmark = db.find(b => b.id === parseInt(id));
@@ -260,6 +333,7 @@ const open = (id) => {
     console.error(colorize(colors.fg.red, `Error: Bookmark with ID ${id} not found`));
     return;
   }
+  // Выбор команды открытия в зависимости от ОС
   const command = process.platform === 'win32' ? 'start' : process.platform === 'darwin' ? 'open' : 'xdg-open';
   exec(`${command} "${bookmark.url}"`, (err) => {
     if (err) {
@@ -270,6 +344,11 @@ const open = (id) => {
   });
 };
 
+/**
+ * Маршрутизатор команд: сопоставляет текстовую команду с соответствующей функцией
+ * @param {string} command - Название команды
+ * @param {string[]} args - Аргументы команды
+ */
 const executeCommand = (command, args) => {
   switch (command) {
     case 'add':
@@ -310,6 +389,10 @@ const executeCommand = (command, args) => {
   }
 };
 
+/**
+ * Запуск интерактивного режима (REPL)
+ * Использует модуль readline для чтения ввода пользователя в бесконечном цикле
+ */
 const startInteractiveMode = () => {
   const rl = readline.createInterface({
     input: process.stdin,
@@ -323,12 +406,14 @@ const startInteractiveMode = () => {
   rl.prompt();
 
   rl.on('line', (line) => {
+    // Регулярное выражение для парсинга строки с учетом кавычек (напр. "Title with spaces")
     const parts = line.trim().match(/(".*?"|[^"\s]+)+(?=\s*|\s*$)/g);
     if (!parts) {
         rl.prompt();
         return;
     }
     const command = parts[0];
+    // Очищаем аргументы от кавычек
     const args = parts.slice(1).map(arg => arg.replace(/^"(.*)"$/, '$1'));
     
     executeCommand(command, args);
@@ -339,6 +424,11 @@ const startInteractiveMode = () => {
   });
 };
 
+/**
+ * Точка входа приложения.
+ * Если аргументы командной строки отсутствуют, запускается интерактивный режим.
+ * В противном случае выполняется переданная команда.
+ */
 const args = process.argv.slice(2);
 if (args.length === 0) {
   startInteractiveMode();
